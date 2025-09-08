@@ -181,6 +181,7 @@ class UniScene:
         cond_video = cond_video.permute(3, 0, 1, 2).unsqueeze(0)  # (1, T, H, W, C)
         cond_masks = cond_masks.permute(3, 0, 1, 2).unsqueeze(0)   # (1, T, H, W, C)
         with torch.no_grad():
+            steps = int(getattr(self.opts, "ddim_steps", 8))
             sample = self.pipeline(
                 video=cond_video,
                 mask=cond_masks,
@@ -189,7 +190,7 @@ class UniScene:
                 height=self.opts.height,
                 width=self.opts.width,
                 num_frames=self.opts.video_length,
-                num_inference_steps=8,
+                num_inference_steps=steps,
                 guidance_scale=1,
                 generator=torch.Generator().manual_seed(42),
             ).frames[0]
