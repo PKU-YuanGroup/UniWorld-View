@@ -26,15 +26,15 @@ traj_examples = [
 ]
 
 video_examples = [
-    ['test/videos/2.mp4', 1, 1],
-    # ['test/videos/0-NNvgaTcVzAG0-r.mp4', 1, 1],
-    ['test/videos/9.mp4', 1, 1],
-    ['test/videos/p7.mp4', 1, 1],
-    ['test/videos/UST-fn-RvhJwMR5S.mp4', 1, 1],
-    ['test/videos/1.mp4', 1, 1],
-    ['test/videos/7.mp4', 1, 1],
-    ['test/videos/ori1.mp4', 1, 1],
-    ['test/videos/part-2-3.mp4', 1, 1],
+    ['test/videos/2.mp4', 1, 5, 1],
+    # ['test/videos/0-NNvgaTcVzAG0-r.mp4', 1, 5, 1],
+    ['test/videos/9.mp4', 1, 5, 1],
+    ['test/videos/p7.mp4', 1, 5, 1],
+    ['test/videos/UST-fn-RvhJwMR5S.mp4', 1, 5, 1],
+    ['test/videos/1.mp4', 1, 5, 1],
+    ['test/videos/7.mp4', 1, 5, 1],
+    ['test/videos/ori1.mp4', 1, 5, 1],
+    ['test/videos/part-2-3.mp4', 1, 5, 1],
 ]
 
 
@@ -339,7 +339,7 @@ def uniscene_demo(opts):
                         )
 
                         gr.Markdown(
-                        "**2.选择视频采帧间隔和相机移动半径，一般采用默认值，如果生成视频移动角度过大，可减小相机移动半径**"
+                        "**2.选择视频采帧间隔、相机初始俯仰角和相机移动半径；一般采用默认值，如移动角度过大可减小相机移动半径**"
                         , 
                         show_label=False, 
                         visible=True
@@ -353,6 +353,7 @@ def uniscene_demo(opts):
                                 label="采帧间隔",
                                 value=1,
                             )
+                            i2v_elevation = gr.Slider(minimum=-45, maximum=45, step=1, elem_id="elevation_dyn", label="相机俯仰角", value=5)
                             i2v_center_scale = gr.Slider(minimum=0.1, maximum=2, step=0.1, elem_id="i2v_center_scale", label="相机移动半径", value=1)
                     with  gr.Column():
                         gr.Markdown(
@@ -403,11 +404,12 @@ def uniscene_demo(opts):
                 inputs=[
                     i2v_input_video,
                     i2v_stride,
+                    i2v_elevation,
                     i2v_center_scale,
                 ],
             )    
 
-            i2v_end_btn.click(inputs=[i2v_input_video, i2v_stride, i2v_center_scale, i2v_pose, i2v_steps, i2v_seed],
+            i2v_end_btn.click(inputs=[i2v_input_video, i2v_stride, i2v_elevation, i2v_center_scale, i2v_pose, i2v_steps, i2v_seed],
                             outputs=[i2v_output_video],
                             fn = image2video.run_dynamic_view_gradio
             )

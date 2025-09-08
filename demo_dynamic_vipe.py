@@ -763,7 +763,7 @@ class UniScene:
             fps=self.opts.fps,
         )
 
-    def run_dynamic_view_gradio(self,i2v_input_video, i2v_stride, i2v_center_scale, i2v_pose,i2v_steps, i2v_seed):
+    def run_dynamic_view_gradio(self,i2v_input_video, i2v_stride, i2v_elevation, i2v_center_scale, i2v_pose,i2v_steps, i2v_seed):
         # 若外部已设置 save_dir（app_dynamic.py 启动时已设置），则沿用，不再新建二级目录
         if not getattr(self.opts, "save_dir", None):
             prefix = datetime.now().strftime("%Y%m%d_%H%M")
@@ -775,6 +775,7 @@ class UniScene:
         self.opts.radius_scale = i2v_center_scale
         self.opts.image_dir = i2v_input_video
         self.opts.ddim_steps = i2v_steps
+        self.opts.elevation = float(i2v_elevation)
         # 使用 build_cameras 的自定义轨迹方式，支持 swing1 标记或 5 段式参数
         pose_text = str(i2v_pose).strip()
         if pose_text.lower().startswith("swing"):
