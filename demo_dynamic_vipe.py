@@ -294,10 +294,11 @@ class UniScene:
         prompt = self.get_caption(image)
         print(prompt)
     
-        diffusion_results = self.run_diffusion(render_results, view_masks, prompt) # torch.Size([49, 384, 672, 3])
-        diffusion_results = self.color_correct(diffusion_results, (render_results+1.)/2.) # color correction
-        save_video(diffusion_results, os.path.join(self.opts.save_dir, f'diffusion.mp4'))
-        # save_video(diffusion_results2, os.path.join(self.opts.save_dir, f'diffusion_correct.mp4'))
+        diffusion_results1 = self.run_diffusion(render_results, view_masks, prompt) # 未颜色校正
+        diffusion_results2 = self.color_correct(diffusion_results1, (render_results+1.)/2.) # 颜色校正
+        # 同步 dynamic_view 的保存策略：同时保存未校正与校正结果
+        save_video(diffusion_results1, os.path.join(self.opts.save_dir, f'diffusion_uncorrect.mp4'))
+        save_video(diffusion_results2, os.path.join(self.opts.save_dir, f'diffusion_correct.mp4'))
         # frame_dir = os.path.join(self.opts.save_dir,'frames')
         # os.makedirs(frame_dir,exist_ok=True)
 
@@ -385,7 +386,8 @@ class UniScene:
         
         self.nvs_single_view(image)
         # traj_dir = os.path.join(self.opts.save_dir, "viz_traj.mp4")
-        gen_dir = os.path.join(self.opts.save_dir, "diffusion.mp4")
+        # 默认返回未颜色校正的结果
+        gen_dir = os.path.join(self.opts.save_dir, "diffusion_uncorrect.mp4")
         return gen_dir #,traj_dir,
 
     # def nvs_sparse_view(self):
@@ -813,7 +815,8 @@ class UniScene:
                 self.opts.z_offset = pose_vals[4]
         self.nvs_dynamic_view()
         # traj_dir = os.path.join(self.opts.save_dir, "viz_traj.mp4")
-        gen_dir = os.path.join(self.opts.save_dir, "diffusion.mp4")
+        # 默认返回未颜色校正的结果
+        gen_dir = os.path.join(self.opts.save_dir, "diffusion_uncorrect.mp4")
         return gen_dir #,traj_dir,
 
 
