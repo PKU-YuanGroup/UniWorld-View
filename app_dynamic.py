@@ -26,7 +26,7 @@ traj_examples = [
 ]
 
 video_examples = [
-    # ['test/videos/10.mp4', 1, 1],
+    ['test/videos/2.mp4', 1, 1],
     # ['test/videos/0-NNvgaTcVzAG0-r.mp4', 1, 1],
     ['test/videos/9.mp4', 1, 1],
     ['test/videos/p7.mp4', 1, 1],
@@ -75,7 +75,8 @@ opts.transformer_path = '/mnt/workspace/ywb/VideoX-Fun/experiments/good_04gt_blo
 # opts.transformer_path_2 = '/mnt/workspace/ywb/VideoX-Fun/experiments/resizegt_0.8gtmask_all_dl3dvreal10k_simpleprompt/checkpoint-50/transformer'
 
 opts.model_name='/mnt/workspace/ywb/VideoX-Fun/Wan2.1-VACE-14B-diffusers'
-opts.lora_path='/mnt/workspace/ywb/VideoX-Fun/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors'
+# opts.lora_path='/mnt/workspace/ywb/VideoX-Fun/loras/Wan21_CausVid_14B_T2V_lora_rank32.safetensors'
+opts.lora_path='/mnt/data/ywb/VideoX-Fun/loras/Wan21_CausVid_14B_T2V_lora_rank32_v2.safetensors'
 
 # from demo_dynamic import UniScene
 from demo_dynamic_vipe import UniScene
@@ -224,7 +225,7 @@ def uniscene_demo(opts):
                     )     
                     i2v_output_video = gr.Video(label="左侧:原视频  右侧:新视角视频",elem_id="output_vid",autoplay=True,show_share_button=True)
                     with gr.Row():
-                        i2v_steps = gr.Slider(minimum=4, maximum=10, step=1, elem_id="i2v_steps", label="去噪步数", value=4)
+                        i2v_steps = gr.Slider(minimum=4, maximum=10, step=1, elem_id="i2v_steps", label="去噪步数", value=8)
                         i2v_seed = gr.Slider(label='随机种子', minimum=0, maximum=max_seed, step=1, value=0)           
                     i2v_end_btn = gr.Button("生成视频")                    
                     # i2v_traj_video = gr.Video(label="Camera Trajectory",elem_id="traj_vid",autoplay=True,show_share_button=True)
@@ -392,7 +393,7 @@ def uniscene_demo(opts):
                     )    
                     i2v_output_video = gr.Video(label="生成视频",elem_id="output_vid",autoplay=True,show_share_button=True)
                     with gr.Row():
-                        i2v_steps = gr.Slider(minimum=4, maximum=10, step=1, elem_id="i2v_steps", label="去噪步数", value=4)
+                        i2v_steps = gr.Slider(minimum=4, maximum=10, step=1, elem_id="i2v_steps", label="去噪步数", value=8)
                         i2v_seed = gr.Slider(label='随机种子', minimum=0, maximum=max_seed, step=1, value=0)            
                     i2v_end_btn = gr.Button("生成视频")                    
                     # i2v_traj_video = gr.Video(label="Camera Trajectory",elem_id="traj_vid",autoplay=True,show_share_button=True)

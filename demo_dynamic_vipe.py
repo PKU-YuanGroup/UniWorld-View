@@ -189,7 +189,7 @@ class UniScene:
                 height=self.opts.height,
                 width=self.opts.width,
                 num_frames=self.opts.video_length,
-                num_inference_steps=4,
+                num_inference_steps=8,
                 guidance_scale=1,
                 generator=torch.Generator().manual_seed(42),
             ).frames[0]
