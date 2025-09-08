@@ -92,3 +92,32 @@ Notes:
   - `opts.model_name`
   - `opts.lora_path`
 - Update these paths to your local checkpoints; otherwise, the UI will fail to load models.
+
+## 6) 界面参数说明（Gradio）
+
+以下说明与 UI 中的“静态视角（单图）”和“动态视角（视频）”面板对应。
+
+静态视角（单图）
+- 输入图片: 单张 RGB 图像。
+- 相机俯仰角 `elevation`: 初始相机俯仰角（度），范围 [-45, 45]；数值越大表示越“俯视”。
+- 相机移动半径 `center_scale`: 控制相机围绕场景运动的半径缩放，范围 [0.1, 2]；过大可能导致移动幅度过大。
+- 相机轨迹 `pose`: 文本输入，格式为“经度φ; 纬度θ; x; y; z”的五段式参数序列，或输入 `swing` 使用内置摆动轨迹。
+- 去噪步数 `steps`: 扩散模型推理步数，范围 [4, 10]，默认 8。该参数直接控制 `num_inference_steps`。
+- 随机种子 `seed`: 控制可复现性。
+
+动态视角（视频）
+- 输入视频: mp4 等格式视频。
+- 采帧间隔 `stride`: 从输入视频抽帧的间隔，范围 [1, 5]。
+- 相机俯仰角 `elevation`: 初始相机俯仰角（度），范围 [-45, 45]；与单图一致，影响 `set_initial_camera(...)`。
+- 相机移动半径 `center_scale`: 控制相机围绕场景运动的半径缩放，范围 [0.1, 2]。
+- 相机轨迹 `pose`: 同上，支持“经度φ; 纬度θ; x; y; z”或 `swing`。
+- 去噪步数 `steps`: 扩散模型推理步数，范围 [4, 10]，默认 8。UI 滑条的取值会传入并设置 `num_inference_steps`。
+- 随机种子 `seed`: 控制可复现性。
+
+渲染与输出
+- 系统会保存若干中间可视化结果（例如 `input.mp4`, `render.mp4`, `mask.mp4`）以及最终的 `diffusion.mp4`。
+- 动态视角下，先用 VIPE 估计每帧深度/内参/位姿，再统一到以首帧与 `elevation` 定义的世界坐标系进行渲染，最后送入扩散模型并做颜色校正。
+
+提示
+- 如果生成的视频移动幅度太大，可适当调小 `center_scale` 或调整 `pose`。
+- 如需更快但可能略降质的结果，可适当降低 `steps`（例如 6），反之可提高至 10 以追求更稳的视觉效果（代价是更慢）。
