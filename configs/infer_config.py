@@ -70,6 +70,10 @@ def get_parser():
     )
     parser.add_argument('--fps', type=int, default=16, help='Fps for saved video')
 
+    # smoothing control (single parameter)
+    parser.add_argument('--smooth_sigma', type=float, default=3.0,
+                        help='Temporal smoothing sigma applied to pose (T, R, FoV); 0 disables smoothing')
+
     ## warp
     parser.add_argument(
         '--stride', type=int, default=1, help='Sampling stride for input video'
