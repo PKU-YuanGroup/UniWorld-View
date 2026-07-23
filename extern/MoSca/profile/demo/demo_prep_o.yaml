@@ -1,0 +1,20 @@
+dep_mode: depthcrafter
+tap_mode: spatracker
+flow_mode: raft
+
+# for dynamic denser TAP resample
+epi_th: 0.0001
+depth_boundary_th: 1.0
+
+tap_chunk_size: 16384
+n_track_uniform: 16384
+n_track_dynamic: 16384
+
+flow_steps: [1, 3]
+epi_num_threads: 16 # Null
+
+align_metric_flag: True
+boundary_enhance_th: 1.0 # ! enhance boundary for spatracker
+# python mosca_precompute_1015.py --cfg ./profile/demo/demo_prep.yaml --ws /mnt/workspace/zhy/TuLing/SceneCrafter_new/output/tUfDESZsQFhdDW9S
+# python mosca_reconstruct_input_1015.py --cfg ./profile/demo/demo_fit.yaml --ws /mnt/workspace/zhy/TuLing/SceneCrafter_new/output/tUfDESZsQFhdDW9S
+# python mosca_precompute_1015.py --cfg ./profile/demo/demo_prep.yaml --ws /mnt/workspace/zhy/TuLing/SceneCrafter_new/output/tUfDESZsQFhdDW9S --skip_dynamic_resample
