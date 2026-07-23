@@ -1,0 +1,8 @@
+.DS_Store
+__pycache__
+output
+checkpoints/*
+!checkpoints/README.md
+!checkpoints/download_hf.py
+!checkpoints/download_hf.sh
+AGENTS.md
