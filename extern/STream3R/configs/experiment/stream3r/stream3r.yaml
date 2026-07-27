@@ -1,0 +1,125 @@
+# @package _global_
+
+defaults:
+  - override /model: stream3r
+
+# seed for random number generators in pytorch, numpy and python.random
+seed: 42
+
+
+tags: ["train", "stream3r"]
+
+task_name: stream3r
+slurm_job_id: 99999 # must set in the command line
+
+# ckpt_path: /path/to/resume.ckpt  # uncomment to resume training from a checkpoint
+
+paths:
+  run_folder_name: ${task_name}_${slurm_job_id}
+
+logger:
+  wandb:
+    name: ${task_name}_${slurm_job_id}
+    project: stream3r
+
+data:
+  data_scaling: 1.0
+  data_root: /data
+  num_views: 10
+  resolution:
+    - [518, 392]
+    - [518, 378]
+    - [518, 336]
+    - [518, 294]
+    - [518, 252]
+    - [518, 210]
+    - [518, 140]
+    - [378, 518]
+    - [336, 518]
+    - [294, 518]
+    - [252, 518]
+    - [224, 224]
+  allow_repeat: true
+  n_corres_train: 0
+  data_module:
+    _target_: stream3r.data.multiview_dust3r_datamodule.MultiViewDUSt3RDataModule
+    pin_memory: true
+    num_workers: 16
+    num_workers_val: 1 # have to be a low number when using DeepSpeed ZeRO-2
+    batch_size_per_device: 1
+    batch_size_per_device_val: 1
+    train_datasets:
+      - 44800 @ Co3d_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT='${data.data_root}/processed_co3d', aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 56000 @ WildRGBD_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_wildrgbd_mp", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 22400 @ ARKitScenesHighRes_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_arkitscene_highres", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 38400 @ ScanNet_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_scannet/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 16800 @ ScanNetpp_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_scannetpp/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 84000 @ MapFree_Multi(allow_repeat=${data.allow_repeat}, split=None, ROOT="${data.data_root}/processed_mapfree/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 20000 @ Waymo_Multi(allow_repeat=${data.allow_repeat}, split=None, ROOT="${data.data_root}/processed_waymo/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 56000 @ TartanAir_Multi(allow_repeat=${data.allow_repeat}, split=None, ROOT="${data.data_root}/processed_tartanair/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 9400 @ Spring(allow_repeat=${data.allow_repeat}, split=None, ROOT="${data.data_root}/processed_spring/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 36000 @ BEDLAM_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_bedlam/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 28800 @ MP3D_Multi(allow_repeat=${data.allow_repeat}, split=None, ROOT="${data.data_root}/processed_mp3d/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 14400 @ UASOL_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_uasol/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 1400 @ MVS_Synth_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_mvs_synth", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 7200 @ PointOdyssey_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_pointodyssey", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 11200 @ HyperSim_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_hypersim_new", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 22400 @ BlendedMVS_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_blendedmvs/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 22400 @ MegaDepth_Multi(allow_repeat=${data.allow_repeat}, split="train", ROOT="${data.data_root}/processed_megadepth", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 5600 @ VirtualKITTI2_Multi(allow_repeat=${data.allow_repeat}, split=None, ROOT="${data.data_root}/processed_vkitti", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 168 @ UnReal4K_Multi(allow_repeat=${data.allow_repeat}, split=None, ROOT="${data.data_root}/processed_unreal4k/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 74000 @ DL3DV_Multi(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_dl3dv_ours_parts/processed_dl3dv_ours", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train}) +
+      - 36000 @ DynamicReplica(allow_repeat=${data.allow_repeat}, split='train', ROOT="${data.data_root}/processed_dynamic_replica/", aug_crop=16, resolution=${data.resolution}, transform=ColorJitter, num_views=${data.num_views}, n_corres=${data.n_corres_train})
+
+model:
+  pretrained: weights/vggt/model.pt
+  net:
+    freeze: encoder
+
+  scheduler:
+    warmup_start_lr: 1e-6
+    warmup_epochs: 1
+
+  train_criterion:
+    _target_: stream3r.loss.losses.CausalLoss
+    gradient_loss: grad
+    is_metric: false
+
+  validation_criterion:
+    _target_: stream3r.loss.losses.CausalLoss
+    gradient_loss: grad
+    is_metric: false
+
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true
+    lr: 1e-5
+    betas:
+      - 0.9
+      - 0.95
+    weight_decay: 0.05
+
+trainer:
+  devices: auto
+  max_epochs: 500
+  accumulate_grad_batches: 4
+  strategy:
+    _target_: lightning.pytorch.strategies.DeepSpeedStrategy
+    timeout:
+      _target_: datetime.timedelta
+      minutes: 80
+  plugins: null
+  limit_val_batches: 0
+  precision: bf16-mixed
+  log_every_n_steps: 20
+
+callbacks:
+  model_checkpoint:
+    every_n_train_steps: 2000
+    every_n_epochs: null
+    save_top_k: -1
+    filename: "{epoch:03d}-{step:08d}"
+    save_last: false
+    monitor: "train/loss"
+  early_stopping:
+    monitor: "train/loss"
