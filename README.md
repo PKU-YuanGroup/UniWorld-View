@@ -29,6 +29,7 @@ UniWorld-View can generate high-fidelity novel views from <strong>casually captu
 -->
 
 For 4D reconstruction, please switch to the `recon` branch.
+For Ascend NPU adaptation, please switch to the `npu` branch.
 
 ## ⚙️ Setup
 
