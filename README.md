@@ -91,8 +91,6 @@ bash checkpoints/download_hf.sh
 This downloads: UniWorld-View transformer, Wan2.1-VACE, BLIP2, MoGe, SAM2, TracerB7, and the default CausVid LoRA `v2`.
 Pass the optional `--mosca` or `--stream3r` argument to additionally download the corresponding pose / depth-estimation model. See `checkpoints/README.md` for download-script details.
 
-```
-
 #### Option B: load from Hugging Face Hub (cache)
 
 Run inference with `--no_load_weights_locally` and override repo IDs via environment variables or CLI (see `checkpoints/download_hf.py`).
