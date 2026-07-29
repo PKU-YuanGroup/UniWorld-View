@@ -14,8 +14,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Make extern deps importable (after repo root).
 # - `moge` is vendored at `extern/moge` (a proper python package), so we add `extern/` to import it as `import moge`.
-# - `sam2` and `vipe` require adding their repo roots (they contain the actual python packages inside).
-for _rel in ("extern/STream3R", "extern/vipe", "extern/sam2", "extern"):
+for _rel in ("extern/STream3R", "extern/sam2", "extern"):
     _p = _REPO_ROOT / _rel
     if _p.exists() and str(_p) not in sys.path:
         sys.path.insert(1, str(_p))
@@ -27,12 +26,6 @@ from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 from sam2.build_sam import build_sam2_video_predictor
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-
-# align depth with VDA
-from vipe.priors.depth.videodepthanything import VideoDepthAnythingDepthModel
-from vipe.priors.depth import DepthEstimationInput
-from vipe.utils.misc import unpack_optional
-from vipe.priors.depth.alignment import align_inv_depth_to_depth
 
 # single view packages (kept the same as demo_dynamic_vipe for downstream rendering flow)
 from carvekit.ml.wrap.tracer_b7 import TracerUniversalB7
@@ -95,7 +88,14 @@ class UniScene:
         if not hasattr(self.opts, "advanced_render"):
             self.opts.advanced_render = True
         self.device = opts.device
-        self.setup_stream3r()
+        # Select geometry backend (STream3R by default; mosca reads a pre-computed bundle).
+        self.geometry_backend = str(getattr(opts, "geometry_backend", "stream3r")).strip().lower()
+        if self.geometry_backend == "stream3r":
+            self.setup_stream3r()
+        elif self.geometry_backend == "mosca":
+            self.stream3r = None
+        else:
+            raise ValueError(f"Unsupported geometry_backend: {self.geometry_backend!r}")
         self.setup_moge()
         self.seg_net = TracerUniversalB7(device=self.opts.device, batch_size=1, model_path=self.opts.segnet_path).eval()
         self.caption_processor = AutoProcessor.from_pretrained(opts.blip_path)
@@ -110,6 +110,7 @@ class UniScene:
         try:
             vae_scale_factor = int(getattr(self.pipeline, "vae_scale_factor_spatial", 8))
             patch_size = getattr(self.pipeline.transformer.config, "patch_size", (1, 2, 2))
+            print('!!!!!!!!!!!!!!!!!!!!!!!', vae_scale_factor * int(patch_size[1]))
             return vae_scale_factor * int(patch_size[1])
         except Exception:
             return 16
@@ -261,7 +262,300 @@ class UniScene:
 
     def setup_stream3r(self):
         # Load pretrained STream3R once
-        self.stream3r = STream3R.from_pretrained(self.opts.stream3r_path).to(self.opts.device).eval()
+        #self.stream3r = STream3R.from_pretrained(self.opts.stream3r_path).to(self.opts.device).eval()
+        return
+
+    # ------------------------------------------------------------------
+    # Geometry backends
+    # ------------------------------------------------------------------
+    # Each backend returns:
+    #   depths_t : (T, H, W) metric depth at the resolved (H, W)
+    #   K_3x3    : (T, 3, 3) intrinsics aligned with (H, W)
+    #   Twcs_stream : (T, 4, 4) c2w matrices in the backend's world frame
+    # The downstream pipeline re-anchors these via the first-frame fg depth.
+
+    def _estimate_geometry_stream3r(self, frames_np: np.ndarray):
+        """Online STream3R inference: pose encoding -> depth/intrinsics/c2w."""
+        device = self.opts.device
+        T, H, W, _ = frames_np.shape
+
+        imgs_stream = _preprocess_frames_for_stream3r(frames_np, mode="crop").to(device)  # (T,3,Hs,Ws)
+        Hs, Ws = imgs_stream.shape[-2:]
+
+        with torch.no_grad():
+            outputs = self.stream3r(imgs_stream, mode="full")
+
+        pose_enc = outputs["pose_enc"]  # (1,T,9)
+
+        # Fix FoV to first frame across the whole sequence (no zoom jitter).
+        fov0 = pose_enc[0, 0, 7:9].clone()
+        pose_enc[0, :, 7:9] = fov0.unsqueeze(0).expand(pose_enc.shape[1], -1)
+
+        extri_34, intri_33 = pose_encoding_to_extri_intri(pose_enc, (Hs, Ws))  # (1,T,3,4), (1,T,3,3)
+        extri_34 = extri_34.squeeze(0)  # (T,3,4)
+        intri_33 = intri_33.squeeze(0)  # (T,3,3)
+
+        # depth at STream3R input resolution -> resize back to (H,W)
+        depth_out = outputs["depth"]
+        if depth_out.ndim == 5 and depth_out.shape[-1] == 1:
+            depth_b_s_1_h_w = depth_out.permute(0, 1, 4, 2, 3).contiguous()
+        elif depth_out.ndim == 5 and depth_out.shape[2] == 1:
+            depth_b_s_1_h_w = depth_out
+        else:
+            raise ValueError(f"Unexpected depth tensor shape from STream3R: {tuple(depth_out.shape)}")
+
+        depths_t = depth_b_s_1_h_w.squeeze(0).squeeze(1)  # (T,Hs,Ws)
+        depths_t = F.interpolate(
+            depths_t.unsqueeze(1), size=(H, W), mode="bilinear", align_corners=False
+        ).squeeze(1)  # (T,H,W)
+
+        # scale intrinsics to (H,W)
+        scale_x = float(W) / float(Ws)
+        scale_y = float(H) / float(Hs)
+        K_3x3 = intri_33.clone()
+        K_3x3[:, 0, 0] *= scale_x
+        K_3x3[:, 1, 1] *= scale_y
+        K_3x3[:, 0, 2] *= scale_x
+        K_3x3[:, 1, 2] *= scale_y
+
+        Twcs_stream = closed_form_inverse_se3(extri_34)  # (T,4,4) c2w
+
+        del imgs_stream, outputs
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        depths_t = depths_t.to(device).float().contiguous()
+        K_3x3 = K_3x3.to(device).float().contiguous()
+        Twcs_stream = Twcs_stream.to(device).float().contiguous()
+        assert depths_t.shape == (T, H, W), f"STream3R depth shape {depths_t.shape} != (T,H,W)"
+        assert K_3x3.shape == (T, 3, 3), f"STream3R K shape {K_3x3.shape} != (T,3,3)"
+        assert Twcs_stream.shape == (T, 4, 4), f"STream3R pose shape {Twcs_stream.shape} != (T,4,4)"
+        return depths_t, K_3x3, Twcs_stream
+
+    def _estimate_geometry_mosca(self, frames_np: np.ndarray):
+        """Read pre-computed MoSca bundle: depthcrafter/metric3d depth + MoCa-aligned cameras.
+
+        Expects --mosca_ws (default: <save_dir>) to contain:
+          - images/<frame>.png                    RGB frames
+          - <dep_mode>_depth/<frame>.npz (key="dep")  raw metric depth per frame
+          - bundle/bundle_cams.pth                MoCa MonocularCameras state_dict
+          - bundle/bundle.pth                     {"dep_scale": (T,), ...}
+
+        Reconstructs depth in metric units via the same convention used by
+        MoSca's `Saved2D.normalize_depth(median_depth=1.0)` followed by
+        `Saved2D.rescale_depth(dep_scale)`:
+            depth_metric = raw / global_median * dep_scale[t]
+        """
+        device = self.opts.device
+        T, H, W, _ = frames_np.shape
+
+        # 1) Resolve workspace directory.
+        mosca_ws = getattr(self.opts, "mosca_ws", None)
+        if mosca_ws is None:
+            save_dir = Path(self.opts.save_dir)
+            # Prefer <save_dir>/bundle if it exists; else fall back to save_dir itself.
+            mosca_ws = save_dir if (save_dir / "bundle").exists() else save_dir.parent
+        mosca_ws = Path(mosca_ws)
+        bundle_dir = mosca_ws / "bundle"
+        cams_pth = bundle_dir / "bundle_cams.pth"
+        bundle_pth = bundle_dir / "bundle.pth"
+        if not bundle_dir.exists() or not cams_pth.exists() or not bundle_pth.exists():
+            raise FileNotFoundError(
+                f"MOSCA backend requires a populated bundle at {bundle_dir}. "
+                "Run mosca_precompute.py + lite_moca_reconstruct.py first, "
+                "or pass --mosca_ws <workspace>."
+            )
+
+        # 2) Load cameras state and per-frame depth scale.
+        cams_state = torch.load(str(cams_pth), map_location="cpu", weights_only=False)
+        bundle_data = torch.load(str(bundle_pth), map_location="cpu", weights_only=False)
+        dep_scale = bundle_data["dep_scale"].float().detach().cpu()  # (T,)
+
+        # We deliberately drop dep_correction / s_track: it's a per-track per-frame
+        # bias (T, N) optimized by MoCa BA. The biases are individually small and
+        # spatially unstructured (L1-regularized, no smoothness), so applying them
+        # produces noisy depth without buying much geometric consistency.
+        # The cameras from BA already account for the depth scale; the small
+        # remaining inconsistency is cheaper to ignore than the noise it adds.
+
+        # Bundle diagnostics — handy when camera poses look wrong.
+        delta_flag_t = cams_state.get("delta_flag", torch.tensor(False))
+        delta_flag = bool(delta_flag_t.item() if hasattr(delta_flag_t, "item") else delta_flag_t)
+        q_wc_raw = cams_state["q_wc"].float().cpu()
+        t_wc_raw = cams_state["t_wc"].float().cpu()
+        q_norms = q_wc_raw.norm(dim=-1)
+        print(
+            f"[mosca bundle] delta_flag={delta_flag}  T={int(q_wc_raw.shape[0])}  "
+            f"q_wc norms min/max/mean="
+            f"{q_norms.min().item():.3f}/{q_norms.max().item():.3f}/{q_norms.mean().item():.3f}"
+        )
+        if delta_flag:
+            # In delta mode the first row of t_wc must be (0,0,0).
+            print(
+                f"[mosca bundle] t_wc[0] (delta first, expected ~0) = "
+                f"{t_wc_raw[0].tolist()}  "
+                f"|t_wc[1:]| max = {t_wc_raw[1:].abs().max().item():.6f}"
+            )
+            # Cumulative translation magnitudes (what we'll actually use).
+            cum_t = [torch.zeros(3)]
+            for i in range(1, int(q_wc_raw.shape[0])):
+                cum_t.append(cum_t[-1] + t_wc_raw[i])
+            cum_t = torch.stack(cum_t)
+            print(
+                f"[mosca bundle] cumulative cam positions: "
+                f"first={cum_t[0].tolist()}  "
+                f"mid={cum_t[len(cum_t)//2].tolist()}  "
+                f"last={cum_t[-1].tolist()}  "
+                f"max-abs={cum_t.abs().max().item():.6f}"
+            )
+        else:
+            print(
+                f"[mosca bundle] cam positions (T_cw.t()): "
+                f"first={t_wc_raw[0].tolist()}  "
+                f"mid={t_wc_raw[len(t_wc_raw)//2].tolist()}  "
+                f"last={t_wc_raw[-1].tolist()}  "
+                f"max-abs={t_wc_raw.abs().max().item():.6f}"
+            )
+        print(
+            f"[mosca bundle] dep_scale min/max/mean = "
+            f"{dep_scale.min().item():.4f}/{dep_scale.max().item():.4f}/"
+            f"{dep_scale.mean().item():.4f}"
+        )
+
+        # 3) Reconstruct c2w from q_wc / t_wc (handles both delta_flag=False and True).
+        # delta_flag / raw tensors already loaded above for diagnostics.
+        q_wc = q_wc_raw
+        t_wc = t_wc_raw
+
+        q_norm = q_wc / (q_wc.norm(dim=-1, keepdim=True) + 1e-12)
+        # IMPORTANT convention note (matching MonocularCameras + moca.py usage):
+        #   MonocularCameras stores `q_wc`/`t_wc` but the resulting "T_wc"
+        #   actually represents CAMERA -> WORLD, i.e. T_cw in standard
+        #   extrinsic notation. Concretely, moca.py does
+        #     R, t = cams.Rt_wc_list()
+        #     point_world = R @ point_cam + t
+        #   so `R = quaternion_to_matrix(q_wc)` is the cam->world rotation and
+        #   `t_wc` is the camera position in the world frame. We therefore
+        #   feed q_wc (WXYZ) directly into the rotation conversion and treat
+        #   the assembled 4x4 as T_cw (no inversion).
+        # scipy.Rotation.from_quat expects XYZW, so permute the components.
+        q_xyzw = q_norm[:, [1, 2, 3, 0]].numpy()
+        R_wc = torch.from_numpy(R.from_quat(q_xyzw).as_matrix()).float()  # (T,3,3)
+
+        if delta_flag:
+            # cam[0] is identity; q_wc[i]/t_wc[i] for i>0 are relative
+            # CAM_(i-1) -> CAM_i transforms in the cam->world convention.
+            # Cumulative product gives CAM_i -> WORLD directly.
+            T_wc = [torch.eye(4)]
+            for i in range(1, T):
+                T_rel = torch.eye(4)
+                T_rel[:3, :3] = R_wc[i]
+                T_rel[:3, 3] = t_wc[i]
+                T_wc.append(T_wc[-1] @ T_rel)
+            T_wc = torch.stack(T_wc, dim=0)
+        else:
+            bottom = torch.zeros(T, 1, 4)
+            bottom[:, 0, 3] = 1.0
+            T_wc = torch.cat([R_wc, t_wc[:, :, None]], dim=-1)
+            T_wc = torch.cat([T_wc, bottom], dim=-2)
+
+        # T_wc is already T_cw in mosca's convention; pass through unchanged.
+        Twcs_stream = T_wc
+
+        # 4) Build intrinsics at default (Hm, Wm), then rescale to (H, W).
+        default_H_t = cams_state["default_H"]
+        default_W_t = cams_state["default_W"]
+        default_H = int(default_H_t.item() if hasattr(default_H_t, "item") else default_H_t)
+        default_W = int(default_W_t.item() if hasattr(default_W_t, "item") else default_W_t)
+        rel_focal = cams_state["_rel_focal"].float().cpu()  # (2,)
+        cxcy_ratio = cams_state["cxcy_ratio"].float().cpu()  # (2,)
+        L = float(min(default_H, default_W))
+        fx = float(rel_focal[0]) * L / 2.0
+        fy = float(rel_focal[1]) * L / 2.0
+        cx = float(default_W) * float(cxcy_ratio[0])
+        cy = float(default_H) * float(cxcy_ratio[1])
+        K_mosca = torch.tensor(
+            [[fx, 0.0, cx],
+             [0.0, fy, cy],
+             [0.0, 0.0, 1.0]],
+            dtype=torch.float32,
+        )
+
+        # 5) Load raw depth files.
+        images_dir = mosca_ws / "images"
+        if not images_dir.exists():
+            raise FileNotFoundError(
+                f"{images_dir} not found; mosca_ws must contain images/."
+            )
+        frame_names = sorted(
+            p.name for p in images_dir.iterdir() if p.suffix in (".png", ".jpg", ".jpeg")
+        )
+        if len(frame_names) < T:
+            raise RuntimeError(
+                f"mosca_ws has {len(frame_names)} frames but video_length={T}."
+            )
+        frame_names = frame_names[:T]
+
+        # Auto-detect dep_mode dir if not specified.
+        dep_mode = getattr(self.opts, "mosca_dep_mode", None)
+        if dep_mode is None:
+            for cand in ("depthcrafter_depth", "metric3d_depth", "depth_metric3d", "uni_depth"):
+                if (mosca_ws / cand).is_dir():
+                    dep_mode = cand
+                    break
+        if dep_mode is None:
+            raise FileNotFoundError(
+                f"No depth directory found in {mosca_ws}. "
+                f"Pass --mosca_dep_mode (e.g. depthcrafter_depth)."
+            )
+        dep_dir = mosca_ws / dep_mode
+        raw_dep = np.stack(
+            [np.load(dep_dir / f"{Path(fn).stem}.npz")["dep"] for fn in frame_names],
+            axis=0,
+        ).astype(np.float32)  # (T, Hm, Wm)
+        Hm, Wm = raw_dep.shape[1:]
+
+        # 6) Apply global median + per-frame dep_scale (matches Saved2D pipeline).
+        global_median = float(np.median(raw_dep))
+        if not (global_median > 0):
+            global_median = 1.0
+        depth_metric = raw_dep / global_median * dep_scale[:, None, None].numpy()
+
+        # 7) Resize depth + intrinsics to (H, W) if needed.
+        depths_t = torch.from_numpy(depth_metric).float()
+        if (Hm, Wm) != (H, W):
+            depths_t = F.interpolate(
+                depths_t.unsqueeze(1), size=(H, W), mode="bilinear", align_corners=False
+            ).squeeze(1)
+
+        scale_x = float(W) / float(Wm)
+        scale_y = float(H) / float(Hm)
+        K_3x3 = K_mosca.unsqueeze(0).repeat(T, 1, 1).clone()
+        K_3x3[:, 0, 0] *= scale_x
+        K_3x3[:, 1, 1] *= scale_y
+        K_3x3[:, 0, 2] *= scale_x
+        K_3x3[:, 1, 2] *= scale_y
+
+        depths_t = depths_t.to(device).contiguous()
+        K_3x3 = K_3x3.to(device).contiguous()
+        Twcs_stream = Twcs_stream.to(device).float().contiguous()
+        assert depths_t.shape == (T, H, W), f"MoSca depth shape {depths_t.shape} != (T,H,W)"
+        assert K_3x3.shape == (T, 3, 3), f"MoSca K shape {K_3x3.shape} != (T,3,3)"
+        assert Twcs_stream.shape == (T, 4, 4), f"MoSca pose shape {Twcs_stream.shape} != (T,4,4)"
+        print(
+            f"[MoSCA] Loaded bundle from {bundle_dir} (dep_mode={dep_mode}); "
+            f"depth={tuple(depths_t.shape)}, K={tuple(K_3x3.shape)}, c2w={tuple(Twcs_stream.shape)}"
+        )
+        return depths_t, K_3x3, Twcs_stream
+
+    def _estimate_video_geometry(self, frames_np: np.ndarray):
+        """Dispatch to the geometry backend selected by --geometry_backend."""
+        backend = getattr(self, "geometry_backend", "stream3r")
+        if backend == "stream3r":
+            return self._estimate_geometry_stream3r(frames_np)
+        if backend == "mosca":
+            return self._estimate_geometry_mosca(frames_np)
+        raise ValueError(f"Unsupported geometry_backend: {backend!r}")
 
     def setup_moge(self):
         self.depth_model = MoGeModel.from_pretrained(self.opts.moge_path).to(self.opts.device).eval()
@@ -858,6 +1152,39 @@ class UniScene:
     def _nvs_dynamic_view_impl(self):
         device = self.opts.device
 
+        # When using the mosca geometry backend, the bundle's cameras/depth are
+        # aligned to the (H, W) of the images mosca_precompute wrote under
+        # <mosca_ws>/images/. We MUST read frames at the same (H, W) and turn
+        # off keep_aspect_ratio for this run — otherwise demo would re-derive
+        # (H, W) from the video's aspect ratio, the frames wouldn't match the
+        # saved images, and the cameras would be wrong.
+        if getattr(self, "geometry_backend", "stream3r") == "mosca":
+            mosca_ws = getattr(self.opts, "mosca_ws", None) or self.opts.save_dir
+            mosca_ws = Path(str(mosca_ws))
+            images_dir = mosca_ws / "images"
+            if not images_dir.is_dir():
+                raise FileNotFoundError(
+                    f"geometry_backend=mosca requires {images_dir}. "
+                    "Run mosca_precompute.py first."
+                )
+            first_img = next(
+                (p for p in sorted(images_dir.iterdir())
+                 if p.suffix in (".png", ".jpg", ".jpeg")),
+                None,
+            )
+            if first_img is None:
+                raise FileNotFoundError(f"No images found in {images_dir}.")
+            with Image.open(first_img) as im:
+                saved_h, saved_w = im.size[1], im.size[0]
+            self.opts.keep_aspect_ratio = False
+            self.opts.base_height = int(saved_h)
+            self.opts.base_width = int(saved_w)
+            self._set_resolution(int(saved_h), int(saved_w))
+            print(
+                f"[mosca] Locked frame resolution to {saved_h}x{saved_w} "
+                f"from {first_img.name}; keep_aspect_ratio disabled."
+            )
+
         if bool(getattr(self.opts, "keep_aspect_ratio", False)):
             try:
                 from decord import VideoReader, cpu
@@ -873,7 +1200,13 @@ class UniScene:
         else:
             self._set_resolution(int(getattr(self.opts, 'base_height', self.opts.height)), int(getattr(self.opts, 'base_width', self.opts.width)))
 
-        # 1) Read video frames (numpy float32 in [0,1])
+        # 1) Read video frames (numpy float32 in [0,1]).
+        #    For the mosca backend, (H, W) was just locked to the cover
+        #    resolution mosca_precompute wrote (no center-crop on disk), so
+        #    we ask read_video_frames for a DIRECT decode at that exact size.
+        #    decord's internal resize on a cover-resolution target is
+        #    essentially aspect-preserving (within ±1 px of codec even-rounding).
+        is_mosca_backend = getattr(self, "geometry_backend", "stream3r") == "mosca"
         frames_np = read_video_frames(
             self.opts.image_dir,
             self.opts.video_length,
@@ -881,7 +1214,8 @@ class UniScene:
             self.opts.max_res,
             width=int(self.opts.width),
             height=int(self.opts.height),
-            center_crop=not bool(getattr(self.opts, "keep_aspect_ratio", False)),
+            center_crop=(not is_mosca_backend)
+                and (not bool(getattr(self.opts, "keep_aspect_ratio", False))),
         )
         T, H, W, _ = frames_np.shape
         assert T == self.opts.video_length, "读取到的帧数与期望不一致"
@@ -890,7 +1224,6 @@ class UniScene:
         if render_method not in {"warp", "hybrid", "mesh"}:
             raise ValueError(f"Invalid render_method: {render_method!r} (expected 'warp', 'hybrid' or 'mesh')")
 
-        align_with_vda = bool(getattr(self.opts, "align_with_vda", False))
         warp_with_occlusion = bool(getattr(self.opts, "warp_with_occlusion", False))
         if render_method in {"hybrid", "mesh"}:
             warp_with_occlusion = False
@@ -906,178 +1239,16 @@ class UniScene:
             warp_with_occlusion = False
 
         if not bool(getattr(self.opts, "advanced_render", True)):
-            align_with_vda = False
             warp_with_occlusion = False
 
-        self.opts.align_with_vda = align_with_vda
         self.opts.warp_with_occlusion = warp_with_occlusion
-        self.opts.advanced_render = align_with_vda or warp_with_occlusion
+        self.opts.advanced_render = warp_with_occlusion
 
-        # 2) STream3R inference: per-frame pose enc, depth, intrinsics
-        imgs_stream = _preprocess_frames_for_stream3r(frames_np, mode="crop").to(device)  # (T,3,Hs,Ws)
-        Hs, Ws = imgs_stream.shape[-2:]
-
-        with torch.no_grad():
-            # 默认采用最高精度的全局注意力模式（full）
-            outputs = self.stream3r(imgs_stream, mode="full")
-
-        # pose encoding -> extrinsic/intrinsic at STream3R input resolution
-        pose_enc = outputs["pose_enc"]  # (1,T,9)
-
-        # Smoothing utilities to reduce jitter
-        def smooth_quaternions(q_in: torch.Tensor, sigma: float = 0.8) -> torch.Tensor:
-            """Gaussian smooth rotations via rotvec (axis-angle) + SLERP behavior.
-
-            Procedure:
-            - Enforce quaternion sign continuity (xyzw, scalar-last).
-            - Convert to rotvec with scipy Rotation.
-            - Apply gaussian_filter1d along time on rotvec.
-            - Convert back to unit quaternions.
-
-            Args:
-                q_in: Tensor (T,4) or (1,T,4)
-                sigma: Gaussian sigma for smoothing in frame units
-
-            Returns:
-                Tensor (T,4) smoothed unit quaternions on the same device/dtype
-            """
-            if q_in.dim() == 3 and q_in.shape[0] == 1:
-                q = q_in.squeeze(0).detach().cpu().numpy().copy()
-            elif q_in.dim() == 2:
-                q = q_in.detach().cpu().numpy().copy()
-            else:
-                raise ValueError(f"Unexpected quaternion shape: {tuple(q_in.shape)}")
-
-            Tq = q.shape[0]
-            if Tq <= 1:
-                return q_in.squeeze(0) if q_in.dim() == 3 else q_in
-
-            # Ensure sign continuity
-            for t in range(1, Tq):
-                if (q[t - 1] @ q[t]) < 0.0:
-                    q[t] = -q[t]
-
-            # Convert to rotvec (axis-angle), smooth, then convert back
-            rot = R.from_quat(q)           # xyzw
-            rv = rot.as_rotvec()           # (T,3)
-            rv_s = gaussian_filter1d(rv, sigma=sigma, axis=0, mode='nearest')
-            rot_s = R.from_rotvec(rv_s)
-            q_s = rot_s.as_quat()          # xyzw
-            q_s = q_s / (np.linalg.norm(q_s, axis=1, keepdims=True) + 1e-12)
-
-            q_s_t = torch.from_numpy(q_s).to(q_in.device).to(q_in.dtype)
-            return q_s_t
-
-        def smooth_translation(t_in: torch.Tensor, sigma: float = 0.8) -> torch.Tensor:
-            """Gaussian smooth a sequence of translations along time.
-
-            Args:
-                t_in: Tensor (T,3) or (1,T,3)
-                sigma: Gaussian sigma in frame units
-            Returns:
-                Tensor (T,3)
-            """
-            if t_in.dim() == 3 and t_in.shape[0] == 1:
-                t = t_in.squeeze(0).detach().cpu().numpy()
-            elif t_in.dim() == 2:
-                t = t_in.detach().cpu().numpy()
-            else:
-                raise ValueError(f"Unexpected translation shape: {tuple(t_in.shape)}")
-
-            if t.shape[0] <= 1:
-                return t_in.squeeze(0) if t_in.dim() == 3 else t_in
-            
-            t_smooth = gaussian_filter1d(t, sigma=sigma, axis=0, mode='nearest')
-            t_smooth_t = torch.from_numpy(t_smooth).to(t_in.device).to(t_in.dtype)
-            return t_smooth_t
-
-        def smooth_pose_encoding_full(pose_enc_in: torch.Tensor, sigma_all: float = 3.0) -> torch.Tensor:
-            """Smooth full pose encoding (Txyz, quat, FoV) with one sigma.
-
-            - Translation: gaussian along time
-            - Rotation: rotvec gaussian along time with sign continuity
-            - FoV: gaussian along time with clamp to (0, pi)
-
-            Args:
-                pose_enc_in: Tensor (1,T,9)
-                sigma_all: non-negative sigma for all components
-            Returns:
-                Smoothed pose encoding (1,T,9)
-            """
-            if sigma_all <= 0.0:
-                return pose_enc_in
-            assert pose_enc_in.dim() == 3 and pose_enc_in.shape[0] == 1 and pose_enc_in.shape[-1] == 9
-            Tlen = pose_enc_in.shape[1]
-            if Tlen <= 1:
-                return pose_enc_in
-
-            pe = pose_enc_in.clone()
-            # Smooth translation
-            trans = pe[0, :, :3]
-            trans_s = smooth_translation(trans, sigma=sigma_all)
-            pe[0, :, :3] = trans_s
-
-            # Smooth rotation
-            quat = pe[0, :, 3:7]
-            quat_s = smooth_quaternions(quat, sigma=sigma_all)
-            pe[0, :, 3:7] = quat_s
-
-            # Smooth FoV
-            fov = pe[0, :, 7:9].detach().cpu().numpy()
-            fov_s = gaussian_filter1d(fov, sigma=sigma_all, axis=0, mode='nearest')
-            fov_s = np.clip(fov_s, 1e-3, np.pi - 1e-3)
-            pe[0, :, 7:9] = torch.from_numpy(fov_s).to(pe.device).to(pe.dtype)
-
-            return pe
-
-        do_smooth = False
-        if do_smooth:
-            # Unified smoothing: translation, rotation, FoV all with sigma=3
-            pose_enc = smooth_pose_encoding_full(pose_enc, sigma_all=3.0)
-
-        # Fix FoV to first frame across the whole sequence (no zoom jitter)
-        fov0 = pose_enc[0, 0, 7:9].clone()
-        pose_enc[0, :, 7:9] = fov0.unsqueeze(0).expand(pose_enc.shape[1], -1)
-
-        extri_34, intri_33 = pose_encoding_to_extri_intri(pose_enc, (Hs, Ws))  # (1,T,3,4), (1,T,3,3)
-        extri_34 = extri_34.squeeze(0)  # (T,3,4)
-        intri_33 = intri_33.squeeze(0)  # (T,3,3)
-
-        # depth at STream3R input resolution -> resize back to original (H,W)
-        depth_out = outputs["depth"]
-        # Normalize to (B,S,1,Hs,Ws)
-        if depth_out.ndim == 5 and depth_out.shape[-1] == 1:
-            # (B,S,Hs,Ws,1) -> (B,S,1,Hs,Ws)
-            depth_b_s_1_h_w = depth_out.permute(0, 1, 4, 2, 3).contiguous()
-        elif depth_out.ndim == 5 and depth_out.shape[2] == 1:
-            depth_b_s_1_h_w = depth_out
-        else:
-            raise ValueError(f"Unexpected depth tensor shape from STream3R: {tuple(depth_out.shape)}")
-
-        depths_t = depth_b_s_1_h_w.squeeze(0).squeeze(1)  # (T,Hs,Ws)
-        depths_t = F.interpolate(
-            depths_t.unsqueeze(1), size=(H, W), mode="bilinear", align_corners=False
-        ).squeeze(1)  # (T,H,W)
-
-        # Note: Depth temporal smoothing removed per request; only camera is smoothed.
-
-        # scale intrinsics to original resolution
-        scale_x = float(W) / float(Ws)
-        scale_y = float(H) / float(Hs)
-        K_3x3 = intri_33.clone()
-        K_3x3[:, 0, 0] *= scale_x
-        K_3x3[:, 1, 1] *= scale_y
-        K_3x3[:, 0, 2] *= scale_x
-        K_3x3[:, 1, 2] *= scale_y
+        # 2) Geometry estimation (STream3R by default; switch via --geometry_backend=mosca).
+        #    Returns depth (T,H,W), intrinsics (T,3,3) at (H,W), and c2w (T,4,4)
+        #    in the backend's world frame. Downstream re-anchors to the first frame.
+        depths_t, K_3x3, Twcs_stream = self._estimate_video_geometry(frames_np)
         K_inv = torch.linalg.inv(K_3x3)
-
-        del imgs_stream, outputs
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        # Depth ready for downstream (no VDA alignment)
-            # Convert to c2w (cam->world) and align to our world using first frame and initial camera
-        Twcs_stream = closed_form_inverse_se3(extri_34)  # (T,4,4)
 
         '''# Align fg depth use VDA
         frames_list_float = [
@@ -1206,29 +1377,6 @@ class UniScene:
             )
             torch.cuda.empty_cache()
 
-            if self.opts.align_with_vda:
-                # 3.2) align fg depth with VDA
-                frames_list_float = [
-                    (frames_np[i]) for i in range(T)
-                ]
-                aligned_depths_t = self.align_video_depth(frames_list_float, depths_t, 1-sam_masks.squeeze())
-                print("depth_bg.shape:", aligned_depths_t.shape)
-                #depth_fg = (1-sam_masks.squeeze()) * aligned_depths_t
-                #viz_depth_list([depth_fg[i].cpu().numpy() for i in range(T)], self.opts.save_dir + "/depth_fg.mp4")
-                
-                ### dilate
-                sam_masks_dilate = 1-sam_masks.squeeze().cpu().numpy()
-                print(sam_masks_dilate.shape)
-                for i in range(sam_masks_dilate.shape[0]):
-                    sam_masks_dilate[i] = cv2.dilate(sam_masks_dilate[i], np.ones((9, 9), np.uint8), iterations=3)
-                sam_masks_dilate = torch.from_numpy(sam_masks_dilate).to(device).type(torch.float32)
-                depths_t = (1-sam_masks_dilate) * depths_t + (1-sam_masks.squeeze()) * aligned_depths_t
-                #max_depth = torch.max(depths_t)
-                #depths_t_viz = depth_masks * depths_t + ~depth_masks*max_depth
-                #depths_t = aligned_depths_t.to(device)
-                #viz_depth_list([depths_t_viz[i].cpu().numpy() for i in range(T)], self.opts.save_dir + "/depth_align.mp4")
-
-
         # 4) Unproject each frame to world points via our own math (consistent with existing pipeline)
         uu, vv = torch.meshgrid(
             torch.arange(W, device=device, dtype=torch.float32),
@@ -1325,7 +1473,7 @@ class UniScene:
 
             meshwarp = MeshWarper(resolution=(H, W), device=str(device))
             depths_mesh = depths_t
-            if self.opts.advanced_render and self.opts.align_with_vda:
+            if self.opts.advanced_render:
                 if "sam_masks" in locals() and "sam_masks_dilate" in locals():
                     depths_mesh = (1 - sam_masks_dilate * sam_masks.squeeze()) * depths_t + (
                         sam_masks_dilate * sam_masks.squeeze() * depths_t.max()
@@ -1394,7 +1542,7 @@ class UniScene:
 
             meshwarp = MeshWarperEx(resolution=(H, W), device=str(device))
             depths_mesh = depths_t
-            if self.opts.advanced_render and self.opts.align_with_vda:
+            if self.opts.advanced_render:
                 if "sam_masks" in locals() and "sam_masks_dilate" in locals():
                     depths_mesh = (1 - sam_masks_dilate * sam_masks.squeeze()) * depths_t + (
                         sam_masks_dilate * sam_masks.squeeze() * depths_t.max()

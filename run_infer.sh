@@ -23,4 +23,5 @@ python inference.py \
   --ddim_steps 8 \
   --diffusion_guidance_scale 4.0 \
   --prompt '' \
+  --geometry_backend stream3r \
   "$@"

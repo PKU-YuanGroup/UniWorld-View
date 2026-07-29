@@ -188,6 +188,39 @@ def get_parser():
     parser.add_argument('--sam2_checkpoint', default='./checkpoints/sam2/sam2_hiera_large.pt', help='Path to SAM2 checkpoint (.pt)')
     parser.add_argument('--sam2_config', default='configs/sam2/sam2_hiera_l.yaml', help='Path to SAM2 config (.yaml)')
 
+    ## geometry backends
+    parser.add_argument(
+        "--geometry_backend",
+        choices=("stream3r", "mosca"),
+        default="stream3r",
+        help=(
+            "Geometry estimator used for dynamic-view depth + camera pose. "
+            "'stream3r' runs STream3R online (default); 'mosca' reads a "
+            "pre-computed MoSca bundle (run mosca_precompute.py + "
+            "lite_moca_reconstruct.py first)."
+        ),
+    )
+    parser.add_argument(
+        "--mosca_ws",
+        type=str,
+        default=None,
+        help=(
+            "Workspace directory produced by mosca_precompute.py + "
+            "lite_moca_reconstruct.py. Expected to contain images/, "
+            "<dep_mode>_depth/, and bundle/ (with bundle.pth + "
+            "bundle_cams.pth). Defaults to <save_dir> when --geometry_backend=mosca."
+        ),
+    )
+    parser.add_argument(
+        "--mosca_dep_mode",
+        type=str,
+        default=None,
+        help=(
+            "Depth subdirectory name inside --mosca_ws (e.g. 'depthcrafter_depth', "
+            "'metric3d_depth', 'uni_depth'). Auto-detected if omitted."
+        ),
+    )
+
     ## toggles (bools)
     parser.add_argument(
         '--advanced_render',
@@ -197,7 +230,6 @@ def get_parser():
         default=True,
         help='Enable advanced rendering pipeline (SAM2 segmentation + optional VDA alignment + occlusion-aware warping)',
     )
-    parser.add_argument('--align_with_vda', type=_str2bool, nargs='?', const=True, default=True, help='Align depth of foreground with VDA')
     parser.add_argument('--warp_with_occlusion', type=_str2bool, nargs='?', const=True, default=True, help='Calculate occlusion mask during warping')
     parser.add_argument(
         '--render_method',

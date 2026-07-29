@@ -1,0 +1,6 @@
+# ninja log v5
+2	4251	1760801615743905604	/mnt/workspace/zhy/TuLing/SceneCrafter_new/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-3.11/cuda_rasterizer/forward.o	14d72815b4f354de
+2	4500	1760801615991685648	/mnt/workspace/zhy/TuLing/SceneCrafter_new/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-3.11/cuda_rasterizer/backward.o	88116293389691d0
+3	12470	1760801623958406727	/mnt/workspace/zhy/TuLing/SceneCrafter_new/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-3.11/cuda_rasterizer/rasterizer_impl.o	6b702f19d50d8e9
+3	23429	1760801634916318037	/mnt/workspace/zhy/TuLing/SceneCrafter_new/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-3.11/ext.o	cfd148b9f6225c71
+3	79847	1760801691324041636	/mnt/workspace/zhy/TuLing/SceneCrafter_new/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-3.11/rasterize_points.o	fcf61bd3354e15da

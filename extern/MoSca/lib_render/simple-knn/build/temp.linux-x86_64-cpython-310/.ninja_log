@@ -1,0 +1,4 @@
+# ninja log v7
+16	11731	1785255368107285713	/mnt/workspace/users/zhy/github/UniWorld-View/extern/MoSca/lib_render/simple-knn/build/temp.linux-x86_64-cpython-310/simple_knn.o	a75a1dab4099246a
+11	20443	1785255368105122000	/mnt/workspace/users/zhy/github/UniWorld-View/extern/MoSca/lib_render/simple-knn/build/temp.linux-x86_64-cpython-310/ext.o	c6b95c3f0b942a8c
+17	54093	1785255368108285719	/mnt/workspace/users/zhy/github/UniWorld-View/extern/MoSca/lib_render/simple-knn/build/temp.linux-x86_64-cpython-310/spatial.o	9e4bfbfbbb44914d

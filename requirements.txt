@@ -39,3 +39,12 @@ typing==3.7.4.3
 # sam2
 iopath==0.1.10
 portalocker==2.8.2
+
+# mosca
+setuptools==80.0.0
+cupy-cuda12x==12.2.0
+tensorboardX
+matplotlib
+transforms3d
+open3d
+easydict

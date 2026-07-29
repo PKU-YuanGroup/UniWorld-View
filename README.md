@@ -49,25 +49,6 @@ Inference expects the following third-party repos to exist under `extern/`:
 
 ```bash
 git clone https://github.com/NIRVANALAN/STream3R.git extern/STream3R
-git clone https://github.com/nv-tlabs/vipe.git extern/vipe
-```
-
-Expected layout:
-
-```text
-UniWorld-View/
-  extern/
-    STream3R/
-    vipe/
-```
-
-To make `--device cuda:N` work correctly for `vipe` / VDA on non-default GPUs, replace two files in the official `vipe` repo with the patched copies shipped in `extern/vipe_patches/`:
-
-```bash
-cp extern/vipe_patches/videodepthanything/__init__.py \
-  extern/vipe/vipe/priors/depth/videodepthanything/__init__.py
-cp extern/vipe_patches/videodepthanything/video_depth.py \
-  extern/vipe/vipe/priors/depth/videodepthanything/video_depth.py
 ```
 
 ### 2. Setup environment
@@ -75,7 +56,7 @@ cp extern/vipe_patches/videodepthanything/video_depth.py \
 ```bash
 conda create -n uniworld-view python=3.10 -y
 conda activate uniworld-view
-pip install torch==2.4.0+cu121 torchvision==0.19.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.4.0+cu124 torchvision==0.19.0+cu124 --index-url https://download.pytorch.org/whl/cu124
 pip install -r requirements.txt
 pip install carvekit --no-deps
 conda install -y -c conda-forge eigen
@@ -89,16 +70,15 @@ bash extern/install_pytorch3d.sh
 
 Requirements for building PyTorch3D: CUDA toolkit with `nvcc`, and a C++ compiler (`g++` / `c++`).
 
-By default, inference also uses `vipe` (for `--align_with_vda`). `vipe` builds its CUDA extension lazily on first import, so after the environment is ready we recommend validating it once:
+Install MoSca dependencies (Optional)
 
 ```bash
-python extern/vipe_test.py
+pip install mmcv-full==1.7.2 --no-build-isolation
+pip install pyg_lib torch_scatter torch_geometric torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
+pip install --no-build-isolation extern/MoSca/lib_render/simple-knn
+pip install --no-build-isolation extern/MoSca/lib_render/diff-gaussian-rasterization-alphadep-add3
+pip install --no-build-isolation extern/MoSca/lib_render/diff-gaussian-rasterization-alphadep
 ```
-
-This checks that `extern/vipe` is importable and that `vipe.ext` can be compiled / loaded successfully in the current environment.
-
-
-### 3. Download pretrained models
 
 By default, UniWorld-View loads weights from `./checkpoints/` (see `checkpoints/README.md`).
 
@@ -108,7 +88,8 @@ By default, UniWorld-View loads weights from `./checkpoints/` (see `checkpoints/
 bash checkpoints/download_hf.sh
 ```
 
-This downloads: UniWorld-View transformer, Wan2.1-VACE, BLIP2, STream3R, MoGe, SAM2, TracerB7, Video-Depth-Anything (for `--align_with_vda`), and the default CausVid LoRA `v2`.
+This downloads: UniWorld-View transformer, Wan2.1-VACE, BLIP2, MoGe, SAM2, TracerB7, and the default CausVid LoRA `v2`.
+Pass the optional `--mosca` or `--stream3r` argument to additionally download the corresponding pose / depth-estimation model. See `checkpoints/README.md` for download-script details.
 
 ```
 
@@ -122,7 +103,25 @@ Run from the **repo root** (`UniWorld-View/`).
 
 ### 1. Command line
 
+Our framework can plug in different reconstruction models for pose and depth estimation.
+
+#### Option A: Bundle Adjustment
+
+We use the MoCa module from [MoSca](https://github.com/JiahuiLei/MoSca), which runs a video diffusion model for depth estimation and then jointly optimizes camera poses and aligns the depth.
+
 ```bash
+bash checkpoints/download_hf.sh --mosca
+bash run_infer_mosca.sh
+```
+
+To run on a different GPU: `CUDA_DEVICE=3 bash run_infer_mosca.sh`.
+
+#### Option B: Feed-forward Transformer (eg. VGGT, DAv3, Stream3R)
+
+Fast inference, but with limited geometric precision. We use [STream3R](https://github.com/NIRVANALAN/STream3R) by default.
+
+```bash
+bash checkpoints/download_hf.sh --stream3r
 bash run_infer.sh
 ```
 

@@ -1,0 +1,6 @@
+# ninja log v7
+10	4124	1785254954439786555	/mnt/workspace/users/zhy/github/UniWorld-View/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-310/cuda_rasterizer/forward.o	e79b1d59b4ff43fb
+6	4151	1785254954438287000	/mnt/workspace/users/zhy/github/UniWorld-View/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-310/cuda_rasterizer/backward.o	47d9399d52cc593a
+11	11604	1785254954440786561	/mnt/workspace/users/zhy/github/UniWorld-View/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-310/cuda_rasterizer/rasterizer_impl.o	3957a04b5dd4fafe
+12	21098	1785254954441786567	/mnt/workspace/users/zhy/github/UniWorld-View/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-310/ext.o	b60dfddfc829369c
+13	55634	1785254954443786579	/mnt/workspace/users/zhy/github/UniWorld-View/extern/MoSca/lib_render/gof-diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-310/rasterize_points.o	43443616b124076
