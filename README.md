@@ -1,6 +1,6 @@
 ## ___***UniWorld-View: Large-Baseline View Synthesis via Video Diffusion Models***___
 <div align="center">
-<img src='assets/logo.png' style="height:100px"></img>
+<img src='assets/logo-title.png' style="height:100px"></img>
  <a href='https://github.com/PKU-YuanGroup/UniWorld-View'><img src='https://img.shields.io/badge/GitHub-UniWorld-View-blue.svg'></a> &nbsp;
  <a href='https://huggingface.co/Drexubery/UniView'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue'></a> &nbsp;
 
