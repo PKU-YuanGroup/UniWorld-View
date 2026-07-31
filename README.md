@@ -3,6 +3,8 @@
 <img src='assets/logo-title.png' style="height:100px"></img>
 
  <a href='https://github.com/PKU-YuanGroup/UniWorld-View'><img src='https://img.shields.io/badge/GitHub-UniWorld-View-blue.svg'></a> &nbsp;
+ <a href='https://zhouhyocean.github.io/uniworld-view/'><img src='https://img.shields.io/badge/Project-Page-Green'></a> &nbsp;
+ <a href='https://www.youtube.com/watch?v=HTp2VF2QMHo'><img src='https://img.shields.io/badge/Youtube-Video-b31b1b.svg'></a>&nbsp;
  <a href='https://huggingface.co/Drexubery/UniView'><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue'></a> &nbsp;
 
 </div>
