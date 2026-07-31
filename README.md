@@ -19,7 +19,7 @@
 UniWorld-View can generate high-fidelity novel views from <strong>casually captured monocular video</strong> or <strong>single images</strong>, while also supporting highly precise pose control. 
 
 <div align="center">
-  <img src="assets/teaser.png" style="max-width: 90%;">
+  <img src="assets/teaser.jpg" style="max-width: 90%;">
 </div>
 
 For 4D reconstruction, please switch to the `recon` branch.
