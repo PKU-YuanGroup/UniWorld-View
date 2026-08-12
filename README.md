@@ -9,7 +9,9 @@
 
 </div>
 
+<div align="center">
 🤗 If you find UniWorld-View useful, **please help ⭐ this repo**, which is important to Open-Source projects. Thanks!
+</div>
 
 ## 🔥🔥🔥 Latest News
 - 🎉 Jul, 2026: UniWorld-View ranked **1st** on the [WorldScore](https://huggingface.co/spaces/Howieeeee/WorldScore_Leaderboard) Leaderboard (by Stanford Prof. Fei-Fei Li's Team)
